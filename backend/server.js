@@ -10,7 +10,24 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+// app.use(cors());
+const allowedOrigins = [
+  'http://localhost:3000', // local frontend
+  'https://ai-summariser-frontend2.onrender.com' // deployed frontend
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like Postman)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    } else {
+      return callback(new Error('CORS not allowed for this origin'), false);
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 
 
