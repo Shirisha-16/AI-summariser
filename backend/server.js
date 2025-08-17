@@ -13,7 +13,7 @@ const PORT = process.env.PORT || 3001;
 // app.use(cors());
 const allowedOrigins = [
   'http://localhost:3000', // local frontend
-  'https://ai-summariser-frontend2.onrender.com' // deployed frontend
+  'https://ai-summariser-ieaq.vercel.app/' // deployed frontend
 ];
 
 app.use(cors({
