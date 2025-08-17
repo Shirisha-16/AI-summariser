@@ -10,26 +10,24 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Middleware
-// app.use(cors());
 const allowedOrigins = [
   'http://localhost:3000', // local frontend
-  'https://ai-summariser-ieaq.vercel.app/' // deployed frontend
+  'https://ai-summariser-ieaq.vercel.app' // deployed frontend (no trailing slash)
 ];
 
 app.use(cors({
   origin: function (origin, callback) {
-    // allow requests with no origin (like Postman)
-    if (!origin) return callback(null, true);
+    if (!origin) return callback(null, true); // allow Postman / curl
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     } else {
-      return callback(new Error('CORS not allowed for this origin'), false);
+      return callback(new Error(`CORS not allowed for origin: ${origin}`), false);
     }
   },
+  methods: ["GET", "POST", "OPTIONS"],
   credentials: true
 }));
 app.use(express.json());
-
 
 // Configure multer for file uploads
 const storage = multer.memoryStorage();
@@ -54,7 +52,7 @@ const groq = new Groq({
 
 // Initialize email transporter
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // or your preferred email service
+    service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS
@@ -62,21 +60,16 @@ const transporter = nodemailer.createTransport({
 });
 
 // Routes
-
-// Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'Server is running' });
 });
 
-// Upload and process text file
 app.post('/api/upload', upload.single('transcript'), (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
-
         const content = req.file.buffer.toString('utf-8');
-        
         res.json({
             success: true,
             filename: req.file.originalname,
@@ -88,11 +81,9 @@ app.post('/api/upload', upload.single('transcript'), (req, res) => {
     }
 });
 
-// Generate summary using Groq AI
 app.post('/api/generate-summary', async (req, res) => {
     try {
         const { content, prompt } = req.body;
-
         if (!content || !prompt) {
             return res.status(400).json({ error: 'Content and prompt are required' });
         }
@@ -110,16 +101,10 @@ Make sure your response is well-formatted and professional.`;
 
         const completion = await groq.chat.completions.create({
             messages: [
-                {
-                    role: "system",
-                    content: systemPrompt
-                },
-                {
-                    role: "user",
-                    content: userPrompt
-                }
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
             ],
-            model: "llama-3.1-8b-instant", // or "mixtral-8x7b-32768"
+            model: "llama-3.1-8b-instant",
             temperature: 0.3,
             max_tokens: 2000,
             top_p: 1,
@@ -127,109 +112,62 @@ Make sure your response is well-formatted and professional.`;
         });
 
         const summary = completion.choices[0]?.message?.content;
+        if (!summary) throw new Error('No summary generated');
 
-        if (!summary) {
-            throw new Error('No summary generated');
-        }
-
-        res.json({
-            success: true,
-            summary: summary
-        });
-
+        res.json({ success: true, summary });
     } catch (error) {
         console.error('Groq API Error:', error);
-        res.status(500).json({ 
-            error: 'Error generating summary: ' + error.message 
-        });
+        res.status(500).json({ error: 'Error generating summary: ' + error.message });
     }
 });
 
-// Send email with summary
 app.post('/api/send-email', async (req, res) => {
     try {
         const { recipients, summary, subject = 'Meeting Summary' } = req.body;
-
         if (!recipients || !summary) {
             return res.status(400).json({ error: 'Recipients and summary are required' });
         }
 
-        // Parse recipients (comma-separated)
         const recipientList = recipients.split(',').map(email => email.trim());
-
-        // Validate email addresses
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         const invalidEmails = recipientList.filter(email => !emailRegex.test(email));
         
         if (invalidEmails.length > 0) {
-            return res.status(400).json({ 
-                error: `Invalid email addresses: ${invalidEmails.join(', ')}` 
-            });
+            return res.status(400).json({ error: `Invalid email addresses: ${invalidEmails.join(', ')}` });
         }
 
-        // Prepare email content
         const htmlContent = `
-            <!DOCTYPE html>
             <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; text-align: center; }
-                    .content { padding: 20px; background: #f8f9fa; }
-                    .summary { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-                    .footer { text-align: center; padding: 20px; color: #666; font-size: 0.9em; }
-                </style>
-            </head>
             <body>
-                <div class="header">
-                    <h1>🤖 AI Meeting Summary</h1>
-                    <p>Generated by AI Meeting Notes Summarizer</p>
-                </div>
-                <div class="content">
-                    <div class="summary">
-                        ${summary.replace(/\n/g, '<br>')}
-                    </div>
-                </div>
-                <div class="footer">
-                    <p>This summary was generated using AI technology. Please review for accuracy.</p>
-                </div>
+                <h2>🤖 AI Meeting Summary</h2>
+                <div>${summary.replace(/\n/g, '<br>')}</div>
             </body>
             </html>
         `;
 
-        const textContent = summary;
-
-        // Send email to all recipients
-        const mailOptions = {
+        await transporter.sendMail({
             from: process.env.EMAIL_USER,
             to: recipientList,
-            subject: subject,
-            text: textContent,
+            subject,
+            text: summary,
             html: htmlContent
-        };
-
-        await transporter.sendMail(mailOptions);
+        });
 
         res.json({
             success: true,
             message: `Summary sent successfully to ${recipientList.length} recipient(s)`,
             recipients: recipientList
         });
-
     } catch (error) {
         console.error('Email Error:', error);
-        res.status(500).json({ 
-            error: 'Error sending email: ' + error.message 
-        });
+        res.status(500).json({ error: 'Error sending email: ' + error.message });
     }
 });
 
 // Error handling middleware
 app.use((error, req, res, next) => {
-    if (error instanceof multer.MulterError) {
-        if (error.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
-        }
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+        return res.status(400).json({ error: 'File too large. Maximum size is 5MB.' });
     }
     res.status(500).json({ error: error.message });
 });
@@ -240,8 +178,7 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Frontend available at: http://localhost:${PORT}`);
+    console.log(`✅ Server running on port ${PORT}`);
 });
 
 module.exports = app;
