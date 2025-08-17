@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { Upload, FileText, Brain, Mail, Send, Loader, CheckCircle, XCircle, Copy, Edit3 } from 'lucide-react';
 
-const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001';
+const API_BASE = process.env.NODE_ENV === 'production' ? '' : 'https://ai-summariser-back2.onrender.com';
 
 const MeetingNotesSummarizer = () => {
   // State management
